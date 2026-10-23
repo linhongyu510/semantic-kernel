@@ -1,5 +1,7 @@
 # Copyright (c) Microsoft. All rights reserved.
 
+import asyncio
+import contextlib
 import logging
 from asyncio import Event
 from collections.abc import Sequence
@@ -395,3 +397,69 @@ async def test_event_handler_exception_multi_message() -> None:
         await runtime.stop_when_idle()
 
     await runtime.close()
+
+
+@pytest.fixture
+async def loop_errors() -> list[dict[str, Any]]:
+    """Record every event-loop exception-handler invocation, e.g. never-retrieved task errors."""
+    records: list[dict[str, Any]] = []
+    loop = asyncio.get_running_loop()
+    previous = loop.get_exception_handler()
+
+    def _handler(lp: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+        records.append(dict(context))
+        if previous is not None:
+            previous(lp, context)
+
+    loop.set_exception_handler(_handler)
+    yield records
+    loop.set_exception_handler(previous)
+
+
+def _never_retrieved(records: list[dict[str, Any]]) -> list[BaseException]:
+    return [
+        ctx["exception"]
+        for ctx in records
+        if ctx.get("message") == "Task exception was never retrieved" and "exception" in ctx
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_message_unknown_recipient_propagates_lookup_error(loop_errors: list[dict[str, Any]]) -> None:
+    """An unregistered recipient raises a typed LookupError to the caller with no unretrieved background error."""
+    runtime = InProcessRuntime()
+    runtime.start()
+
+    raised: BaseException | None = None
+    try:
+        await runtime.send_message(ContentMessage(content="x"), recipient=CoreAgentId("does-not-exist", "default"))
+    except BaseException as e:  # noqa: BLE001 - surface the typed error for assertion
+        raised = e
+
+    for _ in range(4):
+        await asyncio.sleep(0)
+
+    await runtime.stop()
+
+    assert isinstance(raised, LookupError)
+    assert "does-not-exist" in str(raised)
+    assert runtime.unprocessed_messages_count == 0
+    assert not _never_retrieved(loop_errors)
+
+
+@pytest.mark.asyncio
+async def test_send_message_unknown_recipient_does_not_block_stop_when_idle() -> None:
+    """A failed unknown-recipient send must not leave the queue unfinished so stop_when_idle() can drain."""
+    runtime = InProcessRuntime()
+    runtime.start()
+
+    try:
+        with contextlib.suppress(BaseException):
+            # Error type is covered by the typed-propagation test; we only need a failed send here.
+            await runtime.send_message(ContentMessage(content="x"), recipient=CoreAgentId("ghost", "default"))
+
+        # Guard only: if queue.join() hangs, wait_for raises TimeoutError here.
+        await asyncio.wait_for(runtime.stop_when_idle(), timeout=2.0)
+    finally:
+        if runtime._run_context is not None:
+            await runtime.stop()

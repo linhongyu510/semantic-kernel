@@ -240,7 +240,8 @@ class InProcessRuntime(CoreRuntime):
         ):
             future = asyncio.get_event_loop().create_future()
             if recipient.type not in self._known_agent_names:
-                future.set_exception(Exception("Recipient not found"))
+                future.set_exception(LookupError(f"Agent type '{recipient.type}' does not exist."))
+                return await future
 
             content = message.__dict__ if hasattr(message, "__dict__") else message
             logger.info(f"Sending message of type {type(message).__name__} to {recipient.type}: {content}")
