@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import logging
 from asyncio import Event
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -400,7 +400,7 @@ async def test_event_handler_exception_multi_message() -> None:
 
 
 @pytest.fixture
-async def loop_errors() -> list[dict[str, Any]]:
+async def loop_errors() -> AsyncGenerator[list[dict[str, Any]], None]:
     """Record every event-loop exception-handler invocation, e.g. never-retrieved task errors."""
     records: list[dict[str, Any]] = []
     loop = asyncio.get_running_loop()
