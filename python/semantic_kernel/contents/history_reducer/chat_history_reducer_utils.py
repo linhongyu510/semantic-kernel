@@ -48,7 +48,7 @@ def get_call_result_pairs(history: list[ChatMessageContent]) -> list[tuple[int, 
 def locate_summarization_boundary(history: list[ChatMessageContent]) -> int:
     """Identify the index of the first message that is not a summary message.
 
-    This is indicated by the presence of SUMMARY_METADATA_KEY in the message metadata.
+    This is indicated by the presence of the SUMMARY_METADATA_KEY in the message metadata.
 
     Returns:
         The insertion point index for normal history messages (i.e., after all summary messages).
@@ -191,7 +191,7 @@ def extract_range(
     Args:
         history: The source history.
         start: The index of the first message to extract (inclusive).
-        end: The last message to extract (exclusive). If None, extracts through end.
+        end: The index of the last message to extract (exclusive). If None, extracts through end.
         filter_func: A function that takes a ChatMessageContent and returns True if the message should
                         be skipped, False otherwise.
         preserve_pairs: If True, ensures that function call and result pairs are either both kept or both skipped.
