@@ -48,7 +48,7 @@ def get_call_result_pairs(history: list[ChatMessageContent]) -> list[tuple[int, 
 def locate_summarization_boundary(history: list[ChatMessageContent]) -> int:
     """Identify the index of the first message that is not a summary message.
 
-    This is indicated by the presence of the SUMMARY_METADATA_KEY in the message metadata.
+    This is indicated by the presence of SUMMARY_METADATA_KEY in the message metadata.
 
     Returns:
         The insertion point index for normal history messages (i.e., after all summary messages).
@@ -146,7 +146,26 @@ def locate_safe_reduction_index(
     for index in range(total_count - 1, -1, -1):
         suffix_min_call_index[index] = min(suffix_min_call_index[index], suffix_min_call_index[index + 1])
 
+    # Iterate adjacency walk and ID closure to a fixed point: moving the cut back to satisfy
+    # a matched pair may land inside an adjacent call/result block (e.g. a TOOL message with
+    # plain text but no FunctionResultContent for the earlier call), so re-walk adjacency from
+    # the new candidate and repeat until neither rule moves the index further back.
     while True:
+        # Re-run adjacency walk from current candidate to avoid cutting inside a tool block.
+        walk = candidate_index
+        while walk >= offset_count:
+            msg = history[walk]
+            if msg.role in (AuthorRole.DEVELOPER, AuthorRole.SYSTEM):
+                break
+            if not contains_function_call_or_result(msg):
+                break
+            prev_idx = walk - 1
+            if (prev_idx < offset_count) or not contains_function_call_or_result(history[prev_idx]):
+                break
+            walk -= 1
+        if walk < candidate_index:
+            candidate_index = walk
+
         required_call_index = suffix_min_call_index[candidate_index]
         if required_call_index >= candidate_index:
             break
@@ -172,7 +191,7 @@ def extract_range(
     Args:
         history: The source history.
         start: The index of the first message to extract (inclusive).
-        end: The index of the last message to extract (exclusive). If None, extracts through end.
+        end: The last message to extract (exclusive). If None, extracts through end.
         filter_func: A function that takes a ChatMessageContent and returns True if the message should
                         be skipped, False otherwise.
         preserve_pairs: If True, ensures that function call and result pairs are either both kept or both skipped.
